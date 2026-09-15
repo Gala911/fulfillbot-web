@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Сравнение фулфилментов</title>
+<style>
+  :root {
+    --bg: #FDFCFA; --panel: #F1F0EA; --ink: #1B1F1D; --ink-soft: #5B5D57;
+    --line: #DAD8CD; --line-strong: #B9B7A9; --teal: #0F6E56; --teal-bg: #E1F5EE;
+    --amber: #8A5A0E; --amber-bg: #FAEEDA; --red: #99392F; --radius: 6px;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font-family: 'IBM Plex Sans', -apple-system, sans-serif; font-size: 15px; line-height: 1.5; }
+  .num { font-family: 'IBM Plex Mono', 'Courier New', monospace; }
+  .wrap { max-width: 900px; margin: 0 auto; padding: 28px 20px 80px; }
+  header.top { border-bottom: 1px solid var(--line); padding-bottom: 18px; margin-bottom: 24px; }
+  header.top h1 { font-size: 21px; font-weight: 600; margin: 0 0 4px; }
+  header.top p { margin: 0; color: var(--ink-soft); font-size: 14px; }
+  nav.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin-bottom: 22px; }
+  nav.tabs button { background: none; border: none; cursor: pointer; font-family: inherit; font-size: 14px; color: var(--ink-soft); padding: 10px 4px; margin-right: 20px; border-bottom: 2px solid transparent; position: relative; top: 1px; }
+  nav.tabs button.active { color: var(--ink); border-bottom-color: var(--teal); font-weight: 600; }
+  .view { display: none; } .view.active { display: block; }
+  .row-line { border-bottom: 1px solid var(--line); padding: 14px 0; }
+  .row-line:first-child { padding-top: 0; }
+  select, input[type=text], input[type=number], input[type=tel], input[type=email], textarea {
+    font-family: inherit; font-size: 14px; padding: 8px 10px; border: 1px solid var(--line-strong);
+    border-radius: var(--radius); background: #fff; color: var(--ink); width: 100%;
+  }
+  select:focus, input:focus, textarea:focus { outline: 2px solid var(--teal); outline-offset: 1px; }
+  label { display: block; font-size: 13px; color: var(--ink-soft); margin: 14px 0 5px; }
+  label:first-child { margin-top: 0; }
+  button.action { font-family: inherit; font-size: 14px; font-weight: 600; cursor: pointer; background: var(--ink); color: #fff; border: none; padding: 10px 16px; border-radius: var(--radius); margin-top: 16px; }
+  button.action:hover { background: #333; }
+  button.action.ghost { background: none; color: var(--ink); border: 1px solid var(--line-strong); }
+  button.action.ghost:hover { background: var(--panel); }
+  button.action.danger { background: none; color: var(--red); border: 1px solid var(--line-strong); padding: 6px 10px; font-size: 13px; margin-top: 0; }
+  button.action:disabled { opacity: 0.5; cursor: default; }
+  .service-select { margin-bottom: 18px; max-width: 320px; }
+  table.compare { width: 100%; border-collapse: collapse; }
+  table.compare th { text-align: left; font-size: 12px; color: var(--ink-soft); font-weight: 600; padding: 0 0 8px; border-bottom: 1px solid var(--line-strong); }
+  table.compare td { padding: 12px 8px 12px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+  table.compare tr:last-child td { border-bottom: none; }
+  .rank { color: var(--ink-soft); font-size: 13px; width: 22px; }
+  .price-cell { font-weight: 600; white-space: nowrap; }
+  .best-tag { display: inline-block; font-size: 11px; font-weight: 600; color: var(--teal); background: var(--teal-bg); padding: 2px 7px; border-radius: 4px; margin-left: 8px; }
+  .comment { color: var(--ink-soft); font-size: 13px; margin-top: 2px; }
+  .empty { color: var(--ink-soft); font-size: 14px; padding: 30px 0; text-align: center; border: 1px dashed var(--line-strong); border-radius: var(--radius); }
+  .company-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+  .company-name { font-weight: 600; }
+  .company-site { font-size: 13px; color: var(--ink-soft); }
+  .tariff-list { margin-top: 8px; font-size: 13px; color: var(--ink-soft); }
+  .tariff-list span.num { color: var(--ink); }
+  .panel { background: var(--panel); border-radius: 8px; padding: 16px 18px; }
+  .banner { background: var(--amber-bg); color: var(--amber); border-radius: var(--radius); padding: 10px 12px; font-size: 13px; margin-bottom: 18px; }
+  textarea.output { font-family: 'IBM Plex Mono', monospace; font-size: 13px; min-height: 140px; background: var(--panel); }
+  .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: var(--ink); color: #fff; padding: 9px 16px; border-radius: var(--radius); font-size: 13px; opacity: 0; transition: opacity 0.2s; pointer-events: none; }
+  .toast.show { opacity: 1; }
+  .scan-hits { font-size: 13px; margin-top: 10px; }
+  .scan-hits div { padding: 4px 0; color: var(--ink-soft); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <h1>Сравнение фулфилментов</h1>
+    <p>Серверная версия: сама сканирует сайты компаний и пробует отправлять заявки через их формы.</p>
+  </header>
+
+  <nav class="tabs">
+    <button data-view="compare" class="active">Сравнение</button>
+    <button data-view="companies">Компании</button>
+    <button data-view="request">Заявка</button>
+  </nav>
+
+  <section id="view-compare" class="view active">
+    <div style="display:flex; gap:16px; flex-wrap:wrap;">
+      <div class="service-select">
+        <label for="service-select">Вид услуги</label>
+        <select id="service-select"></select>
+      </div>
+      <div class="service-select">
+        <label for="city-select">Город</label>
+        <select id="city-select"><option value="">Все города</option></select>
+      </div>
+    </div>
+    <div id="compare-body"></div>
+  </section>
+
+  <section id="view-companies" class="view">
+    <div class="banner">«Сканировать сайт» — best-effort поиск цен в тексте страницы. Часто ничего не найдёт, если сайт считает тарифы через JS-калькулятор — это нормально, тогда остаётся заявка или ручной ввод.</div>
+    <div id="companies-list"></div>
+    <div class="panel" style="margin-top:20px;">
+      <div class="company-name" style="margin-bottom:12px;">Добавить компанию</div>
+      <label for="c-name">Название</label>
+      <input type="text" id="c-name" placeholder="Название компании">
+      <label for="c-site">Сайт</label>
+      <input type="text" id="c-site" placeholder="https://example.ru">
+      <label for="c-city">Город</label>
+      <input type="text" id="c-city" placeholder="Новосибирск">
+      <button class="action" id="add-company-btn">Добавить компанию</button>
+    </div>
+  </section>
+
+  <section id="view-request" class="view">
+    <label for="r-company">Компания</label>
+    <select id="r-company"></select>
+    <label for="r-name">Имя (твоё или название твоей компании)</label>
+    <input type="text" id="r-name" placeholder="Иван Иванов">
+    <label for="r-phone">Телефон</label>
+    <input type="tel" id="r-phone" placeholder="+7 900 000-00-00">
+    <label for="r-email">Email</label>
+    <input type="email" id="r-email" placeholder="you@example.ru">
+    <label for="r-volume">Объём и товар</label>
+    <textarea id="r-volume" rows="3" placeholder="Например: 300 заказов в месяц, одежда, средний вес 0.4 кг"></textarea>
+    <button class="action" id="preview-btn">Проверить, найдётся ли форма на сайте</button>
+
+    <div id="request-result" style="display:none; margin-top:20px;"></div>
+  </section>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const API = "";
+const CITY_PRESETS = [
+  "Москва", "Санкт-Петербург", "Новосибирск", "Казань", "Екатеринбург",
+  "Самара", "Краснодар", "Нижний Новгород", "Волгоград", "Саратов",
+  "Липецк", "Набережные Челны", "Уфа",
+];
+let SERVICES = {};
+let companies = [];
+
+function showToast(msg) {
+  const t = document.getElementById("toast");
+  t.textContent = msg;
+  t.classList.add("show");
+  setTimeout(() => t.classList.remove("show"), 2200);
+}
+
+function fmtPrice(n) { return Number(n).toLocaleString("ru-RU", { maximumFractionDigits: 2 }); }
+function escapeHtml(s) { return String(s).replace(/[&<>"']/g, m => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m])); }
+
+async function api(path, opts) {
+  const res = await fetch(API + path, Object.assign({ headers: { "Content-Type": "application/json" } }, opts));
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Ошибка запроса");
+  return data;
+}
+
+async function loadServices() {
+  SERVICES = await api("/api/services");
+  const sel = document.getElementById("service-select");
+  sel.innerHTML = Object.entries(SERVICES).map(([k, l]) => `<option value="${k}">${l}</option>`).join("");
+}
+
+async function loadCompanies() {
+  companies = await api("/api/companies");
+  renderCityOptions();
+  renderCompanies();
+  renderRequestSelect();
+}
+
+function renderCityOptions() {
+  const sel = document.getElementById("city-select");
+  const current = sel.value;
+  const dataCities = companies.map(c => c.city).filter(Boolean);
+  const cities = Array.from(new Set([...CITY_PRESETS, ...dataCities]));
+  sel.innerHTML = '<option value="">Все города</option>' +
+    cities.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join("");
+  if (cities.includes(current)) sel.value = current;
+}
+
+async function renderCompare() {
+  const service = document.getElementById("service-select").value;
+  const city = document.getElementById("city-select").value;
+  let rows = await api("/api/compare/" + service);
+  rows = rows.filter(r => !city || !r.city || r.city.includes(city) || r.city.includes("Вся Россия"));
+  const body = document.getElementById("compare-body");
+  if (!rows.length) {
+    body.innerHTML = '<div class="empty">Пока нет сохранённых цен по этой услуге для выбранного города. Добавь их во вкладке «Компании».</div>';
+    return;
+  }
+  let html = '<table class="compare"><thead><tr><th></th><th>Компания</th><th>Цена</th><th>Комментарий</th></tr></thead><tbody>';
+  rows.forEach((r, i) => {
+    html += `<tr>
+      <td class="rank">${i + 1}</td>
+      <td>${escapeHtml(r.name)}${r.city ? `<div class="comment">${escapeHtml(r.city)}</div>` : ''}</td>
+      <td class="price-cell num">${fmtPrice(r.price)} ${escapeHtml(r.unit || "")}${i === 0 ? '<span class="best-tag">лучшая цена</span>' : ''}</td>
+      <td class="comment">${escapeHtml(r.comment || "")}</td>
+    </tr>`;
+  });
+  html += '</tbody></table>';
+  body.innerHTML = html;
+}
+
+function renderCompanies() {
+  const list = document.getElementById("companies-list");
+  if (!companies.length) { list.innerHTML = '<div class="empty">Пока нет ни одной компании.</div>'; return; }
+  list.innerHTML = companies.map(c => {
+    const tariffLines = Object.entries(c.tariffs || {})
+      .map(([k, v]) => `${SERVICES[k]}: <span class="num">${fmtPrice(v.price)} ${escapeHtml(v.unit || "")}</span>`)
+      .join(" · ");
+    return `<div class="row-line" data-id="${c.id}">
+      <div class="company-head">
+        <div>
+          <div class="company-name">${escapeHtml(c.name)}</div>
+          ${c.city ? `<div class="company-site">${escapeHtml(c.city)}</div>` : ""}
+          ${c.website ? `<div class="company-site">${escapeHtml(c.website)}</div>` : ""}
+        </div>
+        <button class="action danger" data-action="delete" data-id="${c.id}">Удалить</button>
+      </div>
+      ${tariffLines ? `<div class="tariff-list">${tariffLines}</div>` : '<div class="tariff-list">Тарифы не заполнены</div>'}
+      <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+        <select class="svc-pick" data-id="${c.id}" style="width:auto; max-width:220px;">
+          ${Object.entries(SERVICES).map(([k, l]) => `<option value="${k}">${l}</option>`).join("")}
+        </select>
+        <input type="text" class="price-input" data-id="${c.id}" placeholder="Цена" style="width:100px;">
+        <input type="text" class="unit-input" data-id="${c.id}" placeholder="Ед. изм. / комментарий" style="width:200px;">
+        <button class="action ghost" data-action="save-tariff" data-id="${c.id}">Сохранить тариф</button>
+        ${c.website ? `<button class="action ghost" data-action="scan" data-id="${c.id}">Сканировать сайт</button>` : ""}
+      </div>
+      <div class="scan-hits" id="scan-${c.id}"></div>
+    </div>`;
+  }).join("");
+}
+
+function renderRequestSelect() {
+  const sel = document.getElementById("r-company");
+  sel.innerHTML = companies.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join("");
+}
+
+document.querySelectorAll("nav.tabs button").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll("nav.tabs button").forEach(b => b.classList.remove("active"));
+    document.querySelectorAll(".view").forEach(v => v.classList.remove("active"));
+    btn.classList.add("active");
+    document.getElementById("view-" + btn.dataset.view).classList.add("active");
+  });
+});
+
+document.getElementById("service-select").addEventListener("change", renderCompare);
+document.getElementById("city-select").addEventListener("change", renderCompare);
+
+document.getElementById("add-company-btn").addEventListener("click", async () => {
+  const name = document.getElementById("c-name").value.trim();
+  const website = document.getElementById("c-site").value.trim();
+  const city = document.getElementById("c-city").value.trim();
+  if (!name) { showToast("Введите название компании"); return; }
+  try {
+    await api("/api/companies", { method: "POST", body: JSON.stringify({ name, website, city }) });
+    document.getElementById("c-name").value = "";
+    document.getElementById("c-site").value = "";
+    document.getElementById("c-city").value = "";
+    await loadCompanies();
+    showToast("Компания добавлена");
+  } catch (e) { showToast(e.message); }
+});
+
+document.getElementById("companies-list").addEventListener("click", async (e) => {
+  const t = e.target;
+  if (t.dataset.action === "delete") {
+    await api("/api/companies/" + t.dataset.id, { method: "DELETE" });
+    await loadCompanies();
+    await renderCompare();
+    showToast("Компания удалена");
+  }
+  if (t.dataset.action === "save-tariff") {
+    const row = t.closest(".row-line");
+    const service_type = row.querySelector(".svc-pick").value;
+    const price = row.querySelector(".price-input").value.trim().replace(",", ".");
+    const unit = row.querySelector(".unit-input").value.trim();
+    try {
+      await api("/api/tariffs", { method: "POST", body: JSON.stringify({ company_id: t.dataset.id, service_type, price, unit }) });
+      await loadCompanies();
+      showToast("Тариф сохранён");
+    } catch (err) { showToast(err.message); }
+  }
+  if (t.dataset.action === "scan") {
+    const out = document.getElementById("scan-" + t.dataset.id);
+    out.textContent = "Сканирую…";
+    try {
+      const res = await api("/api/scan/" + t.dataset.id, { method: "POST" });
+      const entries = Object.entries(res.candidates || {});
+      if (!entries.length) { out.textContent = "Явных цен не найдено — вероятно, тариф считается по заявке или через JS."; return; }
+      out.innerHTML = entries.map(([label, snippets]) =>
+        `<div><strong>${escapeHtml(label)}:</strong> …${snippets.map(escapeHtml).join(" … ")}…</div>`
+      ).join("");
+    } catch (err) { out.textContent = "Не удалось просканировать: " + err.message; }
+  }
+});
+
+document.getElementById("preview-btn").addEventListener("click", async () => {
+  const company_id = document.getElementById("r-company").value;
+  const name = document.getElementById("r-name").value.trim();
+  const phone = document.getElementById("r-phone").value.trim();
+  const email = document.getElementById("r-email").value.trim();
+  const message = document.getElementById("r-volume").value.trim();
+  if (!company_id) { showToast("Выберите компанию"); return; }
+  if (!name || !phone) { showToast("Заполните имя и телефон"); return; }
+
+  const box = document.getElementById("request-result");
+  box.style.display = "block";
+  box.innerHTML = "Проверяю сайт…";
+  try {
+    const res = await api("/api/send_request", { method: "POST", body: JSON.stringify({ company_id, name, phone, email, message, confirm: false }) });
+    if (res.mode === "manual") {
+      box.innerHTML = `<div class="banner">Автоотправка не сработала${res.reason ? ": " + escapeHtml(res.reason) : ""}. Вот готовый текст — отправь вручную:</div>
+        <textarea class="output" rows="8" readonly>${escapeHtml(res.text)}</textarea>`;
+    } else if (res.mode === "preview") {
+      box.innerHTML = `<div>Нашёл форму на сайте. Проверка (ничего ещё не отправлено):</div>
+        <textarea class="output" rows="6" readonly>${escapeHtml(res.details)}</textarea>
+        <button class="action" id="confirm-send">Отправить по-настоящему</button>`;
+      document.getElementById("confirm-send").addEventListener("click", async () => {
+        try {
+          const sent = await api("/api/send_request", { method: "POST", body: JSON.stringify({ company_id, name, phone, email, message, confirm: true }) });
+          box.innerHTML = sent.mode === "sent"
+            ? `<div class="banner" style="background:var(--teal-bg); color:var(--teal);">Заявка отправлена. ${escapeHtml(sent.details || "")}</div>`
+            : `<div class="banner">Не получилось отправить: ${escapeHtml(sent.reason || "")}</div>`;
+        } catch (err) { showToast(err.message); }
+      });
+    }
+  } catch (err) {
+    box.innerHTML = `<div class="banner">${escapeHtml(err.message)}</div>`;
+  }
+});
+
+(async function init() {
+  await loadServices();
+  await loadCompanies();
+  await renderCompare();
+})();
+</script>
+</body>
+</html>
