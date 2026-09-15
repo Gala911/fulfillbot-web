@@ -151,6 +151,39 @@
   textarea.output { font-family: 'IBM Plex Mono', monospace; font-size: 13px; min-height: 140px; background: var(--surface); }
   .toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: var(--btn-bg); color: var(--btn-text); padding: 10px 18px; border-radius: 8px; font-size: 13px; opacity: 0; transition: opacity 0.2s, transform 0.2s; pointer-events: none; box-shadow: var(--shadow-md); }
   .toast.show { opacity: 1; transform: translateX(-50%) translateY(-4px); }
+
+  .toolbar-row { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 20px; }
+  a.export-btn { text-decoration: none; display: inline-block; white-space: nowrap; }
+
+  .edit-fields { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+  .edit-fields input { max-width: 220px; }
+  .history-toggle { background: none; border: none; color: var(--accent-dark); font-size: 12px; cursor: pointer; padding: 0; margin-top: 8px; text-decoration: underline; font-family: inherit; }
+  .history-box { margin-top: 8px; font-size: 12px; color: var(--ink-soft); background: var(--panel); border-radius: 8px; padding: 8px 10px; }
+  .history-box div { padding: 3px 0; }
+  .history-box .old-price { text-decoration: line-through; opacity: 0.7; }
+
+  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center; z-index: 100; padding: 20px; }
+  .modal-box { background: var(--surface); border-radius: var(--radius); padding: 22px; max-width: 360px; width: 100%; box-shadow: var(--shadow-md); }
+  .modal-box h3 { margin: 0 0 10px; font-size: 16px; }
+  .modal-box p { margin: 0 0 14px; font-size: 13px; color: var(--ink-soft); }
+  .modal-actions { display: flex; gap: 8px; margin-top: 4px; }
+  .modal-actions button.action { margin-top: 0; flex: 1; }
+
+  @media (max-width: 640px) {
+    .wrap { padding: 24px 14px 70px; }
+    header.top { gap: 10px; }
+    .logo-mark { width: 36px; height: 36px; font-size: 16px; border-radius: 9px; }
+    header.top h1 { font-size: 19px; }
+    header.top p { font-size: 13px; }
+    nav.tabs { width: 100%; }
+    nav.tabs button { padding: 8px 10px; font-size: 12.5px; flex: 1; }
+    .toolbar-row { flex-direction: column; align-items: stretch; }
+    a.export-btn { text-align: center; }
+    .table-card { overflow-x: auto; }
+    table.compare { min-width: 480px; }
+    .edit-fields input { max-width: none; flex: 1 1 100%; }
+    .company-head { flex-direction: column; align-items: flex-start; gap: 8px; }
+  }
   .scan-hits { font-size: 13px; margin-top: 10px; }
   .scan-hits div { padding: 4px 0; color: var(--ink-soft); }
 </style>
@@ -174,21 +207,30 @@
   </nav>
 
   <section id="view-compare" class="view active">
-    <div style="display:flex; gap:16px; flex-wrap:wrap;">
-      <div class="service-select">
-        <label for="service-select">Вид услуги</label>
-        <select id="service-select"></select>
+    <div class="toolbar-row">
+      <div style="display:flex; gap:16px; flex-wrap:wrap;">
+        <div class="service-select">
+          <label for="service-select">Вид услуги</label>
+          <select id="service-select"></select>
+        </div>
+        <div class="service-select">
+          <label for="city-select">Город</label>
+          <select id="city-select"><option value="">Все города</option></select>
+        </div>
       </div>
-      <div class="service-select">
-        <label for="city-select">Город</label>
-        <select id="city-select"><option value="">Все города</option></select>
-      </div>
+      <a href="/api/export/excel" class="action ghost export-btn" download>⬇ Скачать в Excel</a>
     </div>
     <div id="compare-body"></div>
   </section>
 
   <section id="view-companies" class="view">
     <div class="banner">«Сканировать сайт» — best-effort поиск цен в тексте страницы. Часто ничего не найдёт, если сайт считает тарифы через JS-калькулятор — это нормально, тогда остаётся заявка или ручной ввод.</div>
+    <div class="toolbar-row">
+      <div style="display:flex; gap:12px; flex-wrap:wrap; flex:1;">
+        <input type="text" id="company-search" placeholder="Поиск по названию…" style="max-width:240px;">
+        <select id="company-city-filter" style="max-width:220px; width:auto;"><option value="">Все города</option></select>
+      </div>
+    </div>
     <div id="companies-list"></div>
   </section>
 
@@ -238,6 +280,16 @@ const CITY_PRESETS = [
 ];
 let SERVICES = {};
 let companies = [];
+let deleteRequiresPasscode = false;
+let companySearchQuery = "";
+let companyCityFilter = "";
+
+async function loadConfig() {
+  try {
+    const cfg = await api("/api/config");
+    deleteRequiresPasscode = !!cfg.delete_requires_passcode;
+  } catch (e) { /* если конфиг недоступен — считаем, что пароль не требуется */ }
+}
 
 function showToast(msg) {
   const t = document.getElementById("toast");
@@ -270,13 +322,20 @@ async function loadCompanies() {
 }
 
 function renderCityOptions() {
-  const sel = document.getElementById("city-select");
-  const current = sel.value;
   const dataCities = companies.map(c => c.city).filter(Boolean);
   const cities = Array.from(new Set([...CITY_PRESETS, ...dataCities]));
-  sel.innerHTML = '<option value="">Все города</option>' +
+  const optionsHtml = '<option value="">Все города</option>' +
     cities.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join("");
+
+  const sel = document.getElementById("city-select");
+  const current = sel.value;
+  sel.innerHTML = optionsHtml;
   if (cities.includes(current)) sel.value = current;
+
+  const sel2 = document.getElementById("company-city-filter");
+  const current2 = sel2.value;
+  sel2.innerHTML = optionsHtml;
+  if (cities.includes(current2)) sel2.value = current2;
 }
 
 async function renderCompare() {
@@ -305,7 +364,21 @@ async function renderCompare() {
 function renderCompanies() {
   const list = document.getElementById("companies-list");
   if (!companies.length) { list.innerHTML = '<div class="empty">Пока нет ни одной компании.</div>'; return; }
-  const rows = companies.map(c => {
+
+  const q = companySearchQuery.trim().toLowerCase();
+  const cityFilter = companyCityFilter;
+  const filtered = companies.filter(c => {
+    const matchesSearch = !q || c.name.toLowerCase().includes(q);
+    const matchesCity = !cityFilter || !c.city || c.city.includes(cityFilter) || c.city.includes("Вся Россия");
+    return matchesSearch && matchesCity;
+  });
+
+  if (!filtered.length) {
+    list.innerHTML = '<div class="empty">Ничего не найдено по текущему фильтру.</div>';
+    return;
+  }
+
+  const rows = filtered.map(c => {
     const tariffLines = Object.entries(c.tariffs || {})
       .map(([k, v]) => `${SERVICES[k]}: <span class="num">${fmtPrice(v.price)} ${escapeHtml(v.unit || "")}</span>`)
       .join(" · ");
@@ -317,10 +390,11 @@ function renderCompanies() {
           ${c.website ? `<div class="company-site">${escapeHtml(c.website)}</div>` : ""}
           ${c.price_file_url ? `<div class="company-site">📎 <a href="${c.price_file_url}" target="_blank" rel="noopener">${escapeHtml(c.price_file_name || "файл прайса")}</a></div>` : ""}
         </div>
-        <button class="action danger" data-action="delete" data-id="${c.id}">Удалить</button>
+        <button class="action danger" data-action="delete" data-id="${c.id}" data-name="${escapeHtml(c.name)}">Удалить</button>
       </div>
       ${c.ai_feedback ? `<div class="ai-feedback status-${c.ai_feedback_status || 'done'}"><span class="ai-feedback-label">🔍 Автопроверка файла</span>${escapeHtml(c.ai_feedback)}</div>` : ""}
       ${tariffLines ? `<div class="tariff-list">${tariffLines}</div>` : '<div class="tariff-list">Тарифы не заполнены</div>'}
+
       <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
         <select class="svc-pick" data-id="${c.id}" style="width:auto; max-width:220px;">
           ${Object.entries(SERVICES).map(([k, l]) => `<option value="${k}">${l}</option>`).join("")}
@@ -331,6 +405,16 @@ function renderCompanies() {
         ${c.website ? `<button class="action ghost" data-action="scan" data-id="${c.id}">Сканировать сайт</button>` : ""}
       </div>
       <div class="scan-hits" id="scan-${c.id}"></div>
+
+      <button class="history-toggle" data-action="toggle-history" data-id="${c.id}">История изменений тарифов</button>
+      <div class="history-box" id="history-${c.id}" style="display:none;"></div>
+
+      <button class="history-toggle" data-action="toggle-edit" data-id="${c.id}">Изменить сайт/город</button>
+      <div class="edit-fields" id="edit-${c.id}" style="display:none;">
+        <input type="text" class="edit-website" data-id="${c.id}" placeholder="Сайт" value="${escapeHtml(c.website || "")}">
+        <input type="text" class="edit-city" data-id="${c.id}" placeholder="Город" value="${escapeHtml(c.city || "")}">
+        <button class="action ghost" data-action="save-edit" data-id="${c.id}">Сохранить</button>
+      </div>
     </div>`;
   }).join("");
   list.innerHTML = `<div class="table-card" style="padding: 4px 0;">${rows}</div>`;
@@ -352,6 +436,14 @@ document.querySelectorAll("nav.tabs button").forEach(btn => {
 
 document.getElementById("service-select").addEventListener("change", renderCompare);
 document.getElementById("city-select").addEventListener("change", renderCompare);
+document.getElementById("company-search").addEventListener("input", (e) => {
+  companySearchQuery = e.target.value;
+  renderCompanies();
+});
+document.getElementById("company-city-filter").addEventListener("change", (e) => {
+  companyCityFilter = e.target.value;
+  renderCompanies();
+});
 
 document.getElementById("add-company-btn").addEventListener("click", async () => {
   const name = document.getElementById("c-name").value.trim();
@@ -405,13 +497,43 @@ document.getElementById("add-company-btn").addEventListener("click", async () =>
   }
 });
 
+function showDeleteModal(companyId, companyName) {
+  const overlay = document.createElement("div");
+  overlay.className = "modal-overlay";
+  overlay.innerHTML = `
+    <div class="modal-box">
+      <h3>Удалить «${escapeHtml(companyName)}»?</h3>
+      <p>Это действие нельзя отменить. Компания и все её тарифы будут удалены для всех.</p>
+      ${deleteRequiresPasscode ? '<label for="delete-passcode-input">Кодовое слово</label><input type="password" id="delete-passcode-input" placeholder="Введите кодовое слово" style="margin-bottom:14px;">' : ''}
+      <div class="modal-actions">
+        <button class="action ghost" id="modal-cancel">Отмена</button>
+        <button class="action danger" id="modal-confirm" style="border-color:var(--red); flex:1;">Удалить</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+
+  const close = () => overlay.remove();
+  overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
+  document.getElementById("modal-cancel").addEventListener("click", close);
+  document.getElementById("modal-confirm").addEventListener("click", async () => {
+    const passcode = deleteRequiresPasscode ? (document.getElementById("delete-passcode-input").value || "") : null;
+    try {
+      const url = "/api/companies/" + companyId + (passcode ? ("?passcode=" + encodeURIComponent(passcode)) : "");
+      await api(url, { method: "DELETE" });
+      close();
+      await loadCompanies();
+      await renderCompare();
+      showToast("Компания удалена");
+    } catch (err) {
+      showToast(err.message);
+    }
+  });
+}
+
 document.getElementById("companies-list").addEventListener("click", async (e) => {
   const t = e.target;
   if (t.dataset.action === "delete") {
-    await api("/api/companies/" + t.dataset.id, { method: "DELETE" });
-    await loadCompanies();
-    await renderCompare();
-    showToast("Компания удалена");
+    showDeleteModal(t.dataset.id, t.dataset.name || "");
   }
   if (t.dataset.action === "save-tariff") {
     const row = t.closest(".row-line");
@@ -435,6 +557,40 @@ document.getElementById("companies-list").addEventListener("click", async (e) =>
         `<div><strong>${escapeHtml(label)}:</strong> …${snippets.map(escapeHtml).join(" … ")}…</div>`
       ).join("");
     } catch (err) { out.textContent = "Не удалось просканировать: " + err.message; }
+  }
+  if (t.dataset.action === "toggle-history") {
+    const box = document.getElementById("history-" + t.dataset.id);
+    if (box.style.display === "none") {
+      box.style.display = "block";
+      box.textContent = "Загружаю…";
+      try {
+        const history = await api("/api/companies/" + t.dataset.id + "/history");
+        if (!history.length) {
+          box.textContent = "Изменений тарифов ещё не было.";
+        } else {
+          box.innerHTML = history.map(h => {
+            const date = new Date(h.changed_at.replace(" ", "T") + "Z").toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+            const oldValue = h.old_price != null ? `${fmtPrice(h.old_price)} ${escapeHtml(h.old_unit || "")}` : "не было цены";
+            return `<div><span class="old-price num">${oldValue}</span> — ${escapeHtml(h.service_label)} · ${date}</div>`;
+          }).join("");
+        }
+      } catch (err) { box.textContent = "Не удалось загрузить историю: " + err.message; }
+    } else {
+      box.style.display = "none";
+    }
+  }
+  if (t.dataset.action === "toggle-edit") {
+    const box = document.getElementById("edit-" + t.dataset.id);
+    box.style.display = box.style.display === "none" ? "flex" : "none";
+  }
+  if (t.dataset.action === "save-edit") {
+    const website = document.querySelector(`.edit-website[data-id="${t.dataset.id}"]`).value.trim();
+    const city = document.querySelector(`.edit-city[data-id="${t.dataset.id}"]`).value.trim();
+    try {
+      await api("/api/companies/" + t.dataset.id, { method: "PATCH", body: JSON.stringify({ website, city }) });
+      await loadCompanies();
+      showToast("Изменения сохранены");
+    } catch (err) { showToast(err.message); }
   }
 });
 
@@ -500,6 +656,7 @@ function initTheme() {
 initTheme();
 
 (async function init() {
+  await loadConfig();
   await loadServices();
   await loadCompanies();
   await renderCompare();
