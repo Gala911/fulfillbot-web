@@ -81,6 +81,8 @@ def init_db():
         for col_def in [
             ("price_file", "TEXT"),
             ("price_file_original_name", "TEXT"),
+            ("ai_feedback", "TEXT"),
+            ("ai_feedback_status", "TEXT"),
         ]:
             col_name, col_type = col_def
             if col_name not in existing_cols:
@@ -103,8 +105,17 @@ def add_company(name, website=None, city=None, price_file=None, price_file_origi
 def set_price_file(company_id, price_file, price_file_original_name):
     with closing(get_conn()) as conn, conn:
         conn.execute(
-            "UPDATE companies SET price_file = ?, price_file_original_name = ? WHERE id = ?",
+            "UPDATE companies SET price_file = ?, price_file_original_name = ?, "
+            "ai_feedback = NULL, ai_feedback_status = NULL WHERE id = ?",
             (price_file, price_file_original_name, company_id),
+        )
+
+
+def set_ai_feedback(company_id, feedback, status):
+    with closing(get_conn()) as conn, conn:
+        conn.execute(
+            "UPDATE companies SET ai_feedback = ?, ai_feedback_status = ? WHERE id = ?",
+            (feedback, status, company_id),
         )
 
 
