@@ -75,6 +75,19 @@ def init_db():
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS tariff_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                company_id INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+                service_type TEXT NOT NULL,
+                old_price REAL,
+                old_unit TEXT,
+                old_comment TEXT,
+                changed_at TEXT DEFAULT (datetime('now'))
+            )
+            """
+        )
         # Миграция: добавляем новые колонки, если база уже существовала без них
         # (например, уже развёрнута на хостинге со старой схемой)
         existing_cols = {row["name"] for row in conn.execute("PRAGMA table_info(companies)")}
@@ -143,10 +156,29 @@ def delete_company(name):
         conn.execute("DELETE FROM companies WHERE name = ? COLLATE NOCASE", (name,))
 
 
+def update_company_details(company_id, website=None, city=None):
+    with closing(get_conn()) as conn, conn:
+        conn.execute(
+            "UPDATE companies SET website = ?, city = ? WHERE id = ?",
+            (website, city, company_id),
+        )
+
+
 # ---------- tariffs ----------
 
 def set_tariff(company_id, service_type, price=None, unit=None, comment=None):
     with closing(get_conn()) as conn, conn:
+        existing = conn.execute(
+            "SELECT price, unit, comment FROM tariffs WHERE company_id = ? AND service_type = ?",
+            (company_id, service_type),
+        ).fetchone()
+        # логируем только реальное изменение цены (не первое сохранение "в пустоту")
+        if existing is not None and existing["price"] != price:
+            conn.execute(
+                "INSERT INTO tariff_history (company_id, service_type, old_price, old_unit, old_comment) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (company_id, service_type, existing["price"], existing["unit"], existing["comment"]),
+            )
         conn.execute(
             """
             INSERT INTO tariffs (company_id, service_type, price, unit, comment, updated_at)
@@ -157,6 +189,20 @@ def set_tariff(company_id, service_type, price=None, unit=None, comment=None):
             """,
             (company_id, service_type, price, unit, comment),
         )
+
+
+def get_tariff_history(company_id, service_type=None):
+    with closing(get_conn()) as conn:
+        if service_type:
+            return conn.execute(
+                "SELECT * FROM tariff_history WHERE company_id = ? AND service_type = ? "
+                "ORDER BY changed_at DESC",
+                (company_id, service_type),
+            ).fetchall()
+        return conn.execute(
+            "SELECT * FROM tariff_history WHERE company_id = ? ORDER BY changed_at DESC",
+            (company_id,),
+        ).fetchall()
 
 
 def get_tariffs_for_company(company_id):
