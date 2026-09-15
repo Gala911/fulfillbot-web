@@ -70,6 +70,7 @@
   <nav class="tabs">
     <button data-view="compare" class="active">Сравнение</button>
     <button data-view="companies">Компании</button>
+    <button data-view="add-company">Добавить компанию</button>
     <button data-view="request">Заявка</button>
   </nav>
 
@@ -90,14 +91,21 @@
   <section id="view-companies" class="view">
     <div class="banner">«Сканировать сайт» — best-effort поиск цен в тексте страницы. Часто ничего не найдёт, если сайт считает тарифы через JS-калькулятор — это нормально, тогда остаётся заявка или ручной ввод.</div>
     <div id="companies-list"></div>
-    <div class="panel" style="margin-top:20px;">
-      <div class="company-name" style="margin-bottom:12px;">Добавить компанию</div>
+  </section>
+
+  <section id="view-add-company" class="view">
+    <div class="banner">Можно указать сайт компании, ИЛИ приложить файл с прайсом (Excel, PDF, фото прайс-листа) — что есть под рукой. Файл увидят и смогут скачать все, кто зайдёт на этот сайт.</div>
+    <div class="panel">
+      <div class="company-name" style="margin-bottom:12px;">Новая компания</div>
       <label for="c-name">Название</label>
       <input type="text" id="c-name" placeholder="Название компании">
-      <label for="c-site">Сайт</label>
+      <label for="c-site">Сайт (необязательно)</label>
       <input type="text" id="c-site" placeholder="https://example.ru">
       <label for="c-city">Город</label>
       <input type="text" id="c-city" placeholder="Новосибирск">
+      <label for="c-price-file">Файл с прайсом (необязательно)</label>
+      <input type="file" id="c-price-file" accept=".pdf,.xlsx,.xls,.csv,.doc,.docx,.png,.jpg,.jpeg,.webp">
+      <div class="comment" style="margin-top:4px;">Форматы: PDF, Excel, Word, CSV, изображения. До 15 МБ.</div>
       <button class="action" id="add-company-btn">Добавить компанию</button>
     </div>
   </section>
@@ -207,6 +215,7 @@ function renderCompanies() {
           <div class="company-name">${escapeHtml(c.name)}</div>
           ${c.city ? `<div class="company-site">${escapeHtml(c.city)}</div>` : ""}
           ${c.website ? `<div class="company-site">${escapeHtml(c.website)}</div>` : ""}
+          ${c.price_file_url ? `<div class="company-site">📎 <a href="${c.price_file_url}" target="_blank" rel="noopener">${escapeHtml(c.price_file_name || "файл прайса")}</a></div>` : ""}
         </div>
         <button class="action danger" data-action="delete" data-id="${c.id}">Удалить</button>
       </div>
@@ -246,14 +255,34 @@ document.getElementById("add-company-btn").addEventListener("click", async () =>
   const name = document.getElementById("c-name").value.trim();
   const website = document.getElementById("c-site").value.trim();
   const city = document.getElementById("c-city").value.trim();
+  const fileInput = document.getElementById("c-price-file");
+  const file = fileInput.files[0];
+
   if (!name) { showToast("Введите название компании"); return; }
+
+  const formData = new FormData();
+  formData.append("name", name);
+  formData.append("website", website);
+  formData.append("city", city);
+  if (file) formData.append("price_file", file);
+
   try {
-    await api("/api/companies", { method: "POST", body: JSON.stringify({ name, website, city }) });
+    const res = await fetch(API + "/api/companies", { method: "POST", body: formData });
+    const result = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(result.error || "Ошибка запроса");
+
     document.getElementById("c-name").value = "";
     document.getElementById("c-site").value = "";
     document.getElementById("c-city").value = "";
+    fileInput.value = "";
     await loadCompanies();
     showToast("Компания добавлена");
+
+    // переключаемся на вкладку со списком, чтобы сразу увидеть результат
+    document.querySelectorAll("nav.tabs button").forEach(b => b.classList.remove("active"));
+    document.querySelectorAll(".view").forEach(v => v.classList.remove("active"));
+    document.querySelector('nav.tabs button[data-view="companies"]').classList.add("active");
+    document.getElementById("view-companies").classList.add("active");
   } catch (e) { showToast(e.message); }
 });
 
