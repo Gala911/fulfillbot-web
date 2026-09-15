@@ -34,6 +34,8 @@ db.init_db()
 if not db.list_companies():
     seed()
 
+DELETE_PASSCODE = os.environ.get("DELETE_PASSCODE")  # если не задан — удаление без пароля, только с подтверждением
+
 
 @app.route("/")
 def index():
@@ -181,12 +183,34 @@ def api_delete_company(company_id):
     company = db.get_company(company_id)
     if not company:
         return jsonify({"error": "Не найдено"}), 404
+    if DELETE_PASSCODE:
+        provided = request.args.get("passcode") or (request.get_json(silent=True) or {}).get("passcode")
+        if provided != DELETE_PASSCODE:
+            return jsonify({"error": "Неверное кодовое слово"}), 403
     if company["price_file"]:
         file_path = os.path.join(UPLOAD_FOLDER, company["price_file"])
         if os.path.exists(file_path):
             os.remove(file_path)
     db.delete_company(company["name"])
     return jsonify({"ok": True})
+
+
+@app.route("/api/config", methods=["GET"])
+def api_config():
+    """Публичная информация о настройках сервера, нужная фронтенду (без секретов)."""
+    return jsonify({"delete_requires_passcode": bool(DELETE_PASSCODE)})
+
+
+@app.route("/api/companies/<int:company_id>", methods=["PATCH"])
+def api_update_company(company_id):
+    company = db.get_company(company_id)
+    if not company:
+        return jsonify({"error": "Не найдено"}), 404
+    data = request.get_json(force=True)
+    website = (data.get("website") or "").strip() or None
+    city = (data.get("city") or "").strip() or None
+    db.update_company_details(company_id, website=website, city=city)
+    return jsonify({"ok": True, "website": website, "city": city})
 
 
 # ---------------- tariffs ----------------
@@ -209,6 +233,20 @@ def api_set_tariff():
 
     db.set_tariff(company_id, service_type, price=price, unit=unit, comment=comment)
     return jsonify({"ok": True})
+
+
+@app.route("/api/companies/<int:company_id>/history", methods=["GET"])
+def api_tariff_history(company_id):
+    rows = db.get_tariff_history(company_id)
+    return jsonify([
+        {
+            "service_type": r["service_type"],
+            "service_label": db.SERVICE_TYPES.get(r["service_type"], r["service_type"]),
+            "old_price": r["old_price"], "old_unit": r["old_unit"], "old_comment": r["old_comment"],
+            "changed_at": r["changed_at"],
+        }
+        for r in rows
+    ])
 
 
 @app.route("/api/services", methods=["GET"])
@@ -280,6 +318,62 @@ def api_send_request():
         return jsonify({"mode": "sent", "details": details})
     else:
         return jsonify({"mode": "preview", "details": details})
+
+
+@app.route("/api/export/excel", methods=["GET"])
+def api_export_excel():
+    """Экспорт полного сравнения (все компании × все услуги) в один Excel-файл."""
+    import io
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment
+    from openpyxl.utils import get_column_letter
+
+    companies = db.list_companies()
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Сравнение тарифов"
+
+    headers = ["Компания", "Город", "Сайт"] + list(db.SERVICE_TYPES.values())
+    ws.append(headers)
+    header_fill = PatternFill(start_color="EDE7F9", end_color="EDE7F9", fill_type="solid")
+    for col_idx, _ in enumerate(headers, start=1):
+        cell = ws.cell(row=1, column=col_idx)
+        cell.font = Font(bold=True)
+        cell.fill = header_fill
+        cell.alignment = Alignment(wrap_text=True, vertical="center")
+
+    for c in companies:
+        tariffs = {t["service_type"]: t for t in db.get_tariffs_for_company(c["id"])}
+        row = [c["name"], c["city"] or "", c["website"] or ""]
+        for service_key in db.SERVICE_TYPES:
+            t = tariffs.get(service_key)
+            if t and t["price"] is not None:
+                cell_value = f"{t['price']} {t['unit'] or ''}".strip()
+                if t["comment"]:
+                    cell_value += f" ({t['comment']})"
+            else:
+                cell_value = ""
+            row.append(cell_value)
+        ws.append(row)
+
+    # автоширина колонок (в разумных пределах)
+    for col_idx, header in enumerate(headers, start=1):
+        letter = get_column_letter(col_idx)
+        max_len = max([len(header)] + [len(str(ws.cell(row=r, column=col_idx).value or "")) for r in range(2, ws.max_row + 1)])
+        ws.column_dimensions[letter].width = min(max(12, max_len + 2), 45)
+    ws.freeze_panes = "A2"
+
+    buffer = io.BytesIO()
+    wb.save(buffer)
+    buffer.seek(0)
+
+    from flask import send_file
+    return send_file(
+        buffer,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        as_attachment=True,
+        download_name="сравнение_фулфилментов.xlsx",
+    )
 
 
 @app.errorhandler(413)
