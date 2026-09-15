@@ -42,6 +42,8 @@ def init_db():
                 name TEXT NOT NULL UNIQUE,
                 website TEXT,
                 city TEXT,
+                price_file TEXT,
+                price_file_original_name TEXT,
                 contact_email TEXT,
                 contact_phone TEXT,
                 notes TEXT
@@ -73,18 +75,37 @@ def init_db():
             )
             """
         )
+        # Миграция: добавляем новые колонки, если база уже существовала без них
+        # (например, уже развёрнута на хостинге со старой схемой)
+        existing_cols = {row["name"] for row in conn.execute("PRAGMA table_info(companies)")}
+        for col_def in [
+            ("price_file", "TEXT"),
+            ("price_file_original_name", "TEXT"),
+        ]:
+            col_name, col_type = col_def
+            if col_name not in existing_cols:
+                conn.execute(f"ALTER TABLE companies ADD COLUMN {col_name} {col_type}")
 
 
 # ---------- companies ----------
 
-def add_company(name, website=None, city=None, contact_email=None, contact_phone=None, notes=None):
+def add_company(name, website=None, city=None, price_file=None, price_file_original_name=None,
+                 contact_email=None, contact_phone=None, notes=None):
     with closing(get_conn()) as conn, conn:
         cur = conn.execute(
-            "INSERT INTO companies (name, website, city, contact_email, contact_phone, notes) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (name, website, city, contact_email, contact_phone, notes),
+            "INSERT INTO companies (name, website, city, price_file, price_file_original_name, "
+            "contact_email, contact_phone, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (name, website, city, price_file, price_file_original_name, contact_email, contact_phone, notes),
         )
         return cur.lastrowid
+
+
+def set_price_file(company_id, price_file, price_file_original_name):
+    with closing(get_conn()) as conn, conn:
+        conn.execute(
+            "UPDATE companies SET price_file = ?, price_file_original_name = ? WHERE id = ?",
+            (price_file, price_file_original_name, company_id),
+        )
 
 
 def list_companies():
