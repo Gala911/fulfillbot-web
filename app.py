@@ -19,6 +19,7 @@ from werkzeug.utils import secure_filename
 import database as db
 import forms
 import scraper
+import ai_analysis
 from seed import seed
 
 app = Flask(__name__, static_folder="static", static_url_path="")
@@ -55,6 +56,8 @@ def api_list_companies():
             "notes": c["notes"],
             "price_file_url": f"/api/files/{c['price_file']}" if c["price_file"] else None,
             "price_file_name": c["price_file_original_name"],
+            "ai_feedback": c["ai_feedback"],
+            "ai_feedback_status": c["ai_feedback_status"],
             "tariffs": {
                 t["service_type"]: {"price": t["price"], "unit": t["unit"], "comment": t["comment"]}
                 for t in tariffs
@@ -68,14 +71,31 @@ def _allowed_file(filename):
 
 
 def _save_uploaded_file(file_storage):
-    """Сохраняет загруженный файл под уникальным именем, возвращает (stored_name, original_name)."""
-    original_name = secure_filename(file_storage.filename)
-    if not original_name or not _allowed_file(original_name):
+    """Сохраняет загруженный файл под уникальным именем, возвращает (stored_name, original_name).
+
+    Важно: secure_filename() из werkzeug полностью вырезает нелатинские символы,
+    поэтому файлы с русскими названиями (обычное дело для прайсов) после него
+    превращаются в пустую строку. Расширение проверяем по исходному имени,
+    для отображения берём только базовое имя без пути (без secure_filename),
+    а на диске файл всё равно хранится под случайным UUID-именем — так что
+    это безопасно.
+    """
+    raw_name = os.path.basename(file_storage.filename or "")
+    if not raw_name or not _allowed_file(raw_name):
         return None, None
-    ext = original_name.rsplit(".", 1)[1].lower()
+    ext = raw_name.rsplit(".", 1)[1].lower()
     stored_name = f"{uuid.uuid4().hex}.{ext}"
     file_storage.save(os.path.join(UPLOAD_FOLDER, stored_name))
-    return stored_name, original_name
+    return stored_name, raw_name
+
+
+def _run_ai_analysis(company_id, company_name, stored_name):
+    """Синхронно анализирует только что загруженный файл и сохраняет результат в базу."""
+    ext = stored_name.rsplit(".", 1)[1].lower()
+    file_path = os.path.join(UPLOAD_FOLDER, stored_name)
+    feedback, status = ai_analysis.analyze_price_file(company_name, file_path, ext)
+    db.set_ai_feedback(company_id, feedback, status)
+    return feedback, status
 
 
 @app.route("/api/companies", methods=["POST"])
@@ -109,10 +129,16 @@ def api_add_company():
         name=name, website=website, city=city,
         price_file=stored_name, price_file_original_name=original_name,
     )
+
+    ai_feedback, ai_status = (None, None)
+    if stored_name:
+        ai_feedback, ai_status = _run_ai_analysis(company_id, name, stored_name)
+
     return jsonify({
         "id": company_id, "name": name, "website": website, "city": city,
         "price_file_url": f"/api/files/{stored_name}" if stored_name else None,
         "price_file_name": original_name,
+        "ai_feedback": ai_feedback, "ai_feedback_status": ai_status,
     }), 201
 
 
@@ -135,7 +161,11 @@ def api_upload_price_file(company_id):
         if os.path.exists(old_path):
             os.remove(old_path)
     db.set_price_file(company_id, stored_name, original_name)
-    return jsonify({"price_file_url": f"/api/files/{stored_name}", "price_file_name": original_name})
+    ai_feedback, ai_status = _run_ai_analysis(company_id, company["name"], stored_name)
+    return jsonify({
+        "price_file_url": f"/api/files/{stored_name}", "price_file_name": original_name,
+        "ai_feedback": ai_feedback, "ai_feedback_status": ai_status,
+    })
 
 
 @app.route("/api/files/<path:filename>", methods=["GET"])
