@@ -20,7 +20,7 @@ import database as db
 import forms
 import scraper
 import ai_analysis
-from seed import seed
+from seed import seed, seed_extra
 
 app = Flask(__name__, static_folder="static", static_url_path="")
 
@@ -33,6 +33,7 @@ app.config["MAX_CONTENT_LENGTH"] = MAX_FILE_SIZE
 db.init_db()
 if not db.list_companies():
     seed()
+seed_extra()  # безопасно на каждом запуске: добавляет только отсутствующие компании
 
 DELETE_PASSCODE = os.environ.get("DELETE_PASSCODE")  # если не задан — удаление без пароля, только с подтверждением
 
@@ -60,6 +61,7 @@ def api_list_companies():
             "price_file_name": c["price_file_original_name"],
             "ai_feedback": c["ai_feedback"],
             "ai_feedback_status": c["ai_feedback_status"],
+            "partner_status": c["partner_status"],
             "tariffs": {
                 t["service_type"]: {"price": t["price"], "unit": t["unit"], "comment": t["comment"]}
                 for t in tariffs
@@ -195,10 +197,27 @@ def api_delete_company(company_id):
     return jsonify({"ok": True})
 
 
+@app.route("/api/companies/<int:company_id>/status", methods=["POST"])
+def api_set_partner_status(company_id):
+    company = db.get_company(company_id)
+    if not company:
+        return jsonify({"error": "Не найдено"}), 404
+    data = request.get_json(force=True)
+    status = data.get("status") or None
+    try:
+        db.set_partner_status(company_id, status)
+    except ValueError:
+        return jsonify({"error": "Неизвестный статус"}), 400
+    return jsonify({"ok": True, "partner_status": status})
+
+
 @app.route("/api/config", methods=["GET"])
 def api_config():
     """Публичная информация о настройках сервера, нужная фронтенду (без секретов)."""
-    return jsonify({"delete_requires_passcode": bool(DELETE_PASSCODE)})
+    return jsonify({
+        "delete_requires_passcode": bool(DELETE_PASSCODE),
+        "partner_statuses": db.PARTNER_STATUSES,
+    })
 
 
 @app.route("/api/companies/<int:company_id>", methods=["PATCH"])
