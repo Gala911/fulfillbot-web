@@ -132,8 +132,10 @@
   .best-tag { display: inline-block; font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.02em; color: #fff; background: var(--accent); padding: 3px 8px; border-radius: 20px; margin-left: 8px; }
   .status-badge { display: inline-block; font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.02em; padding: 3px 8px; border-radius: 20px; margin-left: 8px; vertical-align: middle; }
   .status-badge.status-working { color: #fff; background: var(--accent); }
+  .status-badge.status-signing { color: var(--amber); background: var(--amber-bg); border: 1px solid var(--amber-line); }
   .status-badge.status-worked { color: var(--ink); background: var(--panel-2); border: 1px solid var(--line-strong); }
   .status-badge.status-rejected { color: var(--red); background: var(--red-bg); border: 1px solid var(--red-line); }
+  .no-price-badge { display: inline-block; font-size: 10.5px; font-weight: 700; letter-spacing: 0.01em; padding: 3px 8px; border-radius: 20px; margin-left: 8px; vertical-align: middle; color: var(--amber); background: var(--amber-bg); border: 1px solid var(--amber-line); text-transform: none; }
   select.status-pick { width: auto; max-width: 180px; display: inline-block; }
   .comment { color: var(--ink-soft); font-size: 13px; margin-top: 3px; line-height: 1.4; }
 
@@ -166,6 +168,14 @@
   .history-box { margin-top: 8px; font-size: 12px; color: var(--ink-soft); background: var(--panel); border-radius: 8px; padding: 8px 10px; }
   .history-box div { padding: 3px 0; }
   .history-box .old-price { text-decoration: line-through; opacity: 0.7; }
+  .review-fields { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; max-width: 420px; }
+  .star-picker { display: flex; gap: 4px; }
+  .star-picker button { background: none; border: none; cursor: pointer; font-size: 22px; padding: 0; line-height: 1; color: var(--line-strong); }
+  .star-picker button.filled { color: var(--amber); }
+  .star-picker button:hover { color: var(--amber); }
+  .review-display { margin-top: 8px; font-size: 13px; }
+  .review-display .stars { color: var(--amber); letter-spacing: 1px; }
+  .review-display .comment-text { color: var(--ink-soft); margin-top: 2px; white-space: pre-line; }
 
   .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center; z-index: 100; padding: 20px; }
   .modal-box { background: var(--surface); border-radius: var(--radius); padding: 22px; max-width: 360px; width: 100%; box-shadow: var(--shadow-md); }
@@ -234,6 +244,11 @@
       <div style="display:flex; gap:12px; flex-wrap:wrap; flex:1;">
         <input type="text" id="company-search" placeholder="Поиск по названию…" style="max-width:240px;">
         <select id="company-city-filter" style="max-width:220px; width:auto;"><option value="">Все города</option></select>
+        <select id="company-price-filter" style="max-width:220px; width:auto;">
+          <option value="">Все компании</option>
+          <option value="no_price">📞 Только без прайса</option>
+          <option value="has_price">Только с ценами</option>
+        </select>
       </div>
     </div>
     <div id="companies-list"></div>
@@ -289,6 +304,7 @@ let deleteRequiresPasscode = false;
 let PARTNER_STATUSES = {};
 let companySearchQuery = "";
 let companyCityFilter = "";
+let companyPriceFilter = "";
 
 async function loadConfig() {
   try {
@@ -374,10 +390,13 @@ function renderCompanies() {
 
   const q = companySearchQuery.trim().toLowerCase();
   const cityFilter = companyCityFilter;
+  const priceFilter = companyPriceFilter;
   const filtered = companies.filter(c => {
     const matchesSearch = !q || c.name.toLowerCase().includes(q);
     const matchesCity = !cityFilter || !c.city || c.city.includes(cityFilter) || c.city.includes("Вся Россия");
-    return matchesSearch && matchesCity;
+    const hasPrice = Object.keys(c.tariffs || {}).length > 0;
+    const matchesPrice = !priceFilter || (priceFilter === "no_price" && !hasPrice) || (priceFilter === "has_price" && hasPrice);
+    return matchesSearch && matchesCity && matchesPrice;
   });
 
   if (!filtered.length) {
@@ -389,10 +408,11 @@ function renderCompanies() {
     const tariffLines = Object.entries(c.tariffs || {})
       .map(([k, v]) => `${SERVICES[k]}: <span class="num">${fmtPrice(v.price)} ${escapeHtml(v.unit || "")}</span>`)
       .join(" · ");
+    const hasNoPrice = Object.keys(c.tariffs || {}).length === 0;
     return `<div class="row-line" data-id="${c.id}" style="padding-left:16px; padding-right:16px;">
       <div class="company-head">
         <div>
-          <div class="company-name">${escapeHtml(c.name)}${c.partner_status ? `<span class="status-badge status-${c.partner_status}">${escapeHtml(PARTNER_STATUSES[c.partner_status] || c.partner_status)}</span>` : ""}</div>
+          <div class="company-name">${escapeHtml(c.name)}${c.partner_status ? `<span class="status-badge status-${c.partner_status}">${escapeHtml(PARTNER_STATUSES[c.partner_status] || c.partner_status)}</span>` : ""}${hasNoPrice ? `<span class="no-price-badge">📞 нет прайса — только звонок</span>` : ""}</div>
           ${c.city ? `<div class="company-site">${escapeHtml(c.city)}</div>` : ""}
           ${c.website ? `<div class="company-site"><a href="${escapeHtml(c.website)}" target="_blank" rel="noopener">${escapeHtml(c.website)}</a></div>` : ""}
           ${c.notes ? `<div class="comment" style="margin-top:4px;">${escapeHtml(c.notes)}</div>` : ""}
@@ -405,7 +425,7 @@ function renderCompanies() {
         <button class="action danger" data-action="delete" data-id="${c.id}" data-name="${escapeHtml(c.name)}">Удалить</button>
       </div>
       ${c.ai_feedback ? `<div class="ai-feedback status-${c.ai_feedback_status || 'done'}"><span class="ai-feedback-label">🔍 Автопроверка файла</span>${escapeHtml(c.ai_feedback)}</div>` : ""}
-      ${tariffLines ? `<div class="tariff-list">${tariffLines}</div>` : '<div class="tariff-list">Тарифы не заполнены</div>'}
+      ${tariffLines ? `<div class="tariff-list">${tariffLines}</div>` : ''}
 
       <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
         <select class="svc-pick" data-id="${c.id}" style="width:auto; max-width:220px;">
@@ -426,6 +446,19 @@ function renderCompanies() {
         <input type="text" class="edit-website" data-id="${c.id}" placeholder="Сайт" value="${escapeHtml(c.website || "")}">
         <input type="text" class="edit-city" data-id="${c.id}" placeholder="Город" value="${escapeHtml(c.city || "")}">
         <button class="action ghost" data-action="save-edit" data-id="${c.id}">Сохранить</button>
+      </div>
+
+      ${(c.user_rating || c.user_comment) ? `<div class="review-display">
+        ${c.user_rating ? `<div class="stars">${"★".repeat(c.user_rating)}${"☆".repeat(5 - c.user_rating)}</div>` : ""}
+        ${c.user_comment ? `<div class="comment-text">${escapeHtml(c.user_comment)}</div>` : ""}
+      </div>` : ""}
+      <button class="history-toggle" data-action="toggle-review" data-id="${c.id}">${(c.user_rating || c.user_comment) ? "Изменить" : "Добавить"} оценку/комментарий</button>
+      <div class="review-fields" id="review-${c.id}" style="display:none;">
+        <div class="star-picker" data-id="${c.id}">
+          ${[1, 2, 3, 4, 5].map(n => `<button type="button" data-star="${n}" data-id="${c.id}" class="${c.user_rating >= n ? 'filled' : ''}">★</button>`).join("")}
+        </div>
+        <textarea class="review-comment" data-id="${c.id}" rows="3" placeholder="Комментарий: как прошла работа, что понравилось/не понравилось…">${escapeHtml(c.user_comment || "")}</textarea>
+        <button class="action ghost" data-action="save-review" data-id="${c.id}" style="align-self:flex-start;">Сохранить оценку</button>
       </div>
     </div>`;
   }).join("");
@@ -454,6 +487,10 @@ document.getElementById("company-search").addEventListener("input", (e) => {
 });
 document.getElementById("company-city-filter").addEventListener("change", (e) => {
   companyCityFilter = e.target.value;
+  renderCompanies();
+});
+document.getElementById("company-price-filter").addEventListener("change", (e) => {
+  companyPriceFilter = e.target.value;
   renderCompanies();
 });
 
@@ -613,6 +650,29 @@ document.getElementById("companies-list").addEventListener("click", async (e) =>
       await api("/api/companies/" + t.dataset.id, { method: "PATCH", body: JSON.stringify({ website, city }) });
       await loadCompanies();
       showToast("Изменения сохранены");
+    } catch (err) { showToast(err.message); }
+  }
+  if (t.dataset.action === "toggle-review") {
+    const box = document.getElementById("review-" + t.dataset.id);
+    box.style.display = box.style.display === "none" ? "flex" : "none";
+  }
+  if (t.dataset.star !== undefined) {
+    const picker = t.closest(".star-picker");
+    const value = parseInt(t.dataset.star, 10);
+    picker.dataset.selected = value;
+    picker.querySelectorAll("button").forEach(btn => {
+      btn.classList.toggle("filled", parseInt(btn.dataset.star, 10) <= value);
+    });
+  }
+  if (t.dataset.action === "save-review") {
+    const id = t.dataset.id;
+    const picker = document.querySelector(`.star-picker[data-id="${id}"]`);
+    const rating = picker.dataset.selected ? parseInt(picker.dataset.selected, 10) : (picker.querySelectorAll("button.filled").length || null);
+    const comment = document.querySelector(`.review-comment[data-id="${id}"]`).value.trim();
+    try {
+      await api("/api/companies/" + id + "/review", { method: "POST", body: JSON.stringify({ rating, comment }) });
+      await loadCompanies();
+      showToast("Оценка сохранена");
     } catch (err) { showToast(err.message); }
   }
 });
